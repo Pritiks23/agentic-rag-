@@ -3,4 +3,4 @@ class LastmileClient:
         self.api_token = api_token
 
     def log_evaluation(self, query, answer):
-        print(f"[LastMile] Logging evaluation. Query length: {len(query)}, Answer length: {len(answer)}")
+        print(f"[LastMile] Logging evaluation for query length {len(query)} and answer length {len(answer)}")
