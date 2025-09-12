@@ -1,4 +1,4 @@
-name: Agentic RAG (HF Free LLM)
+name: Agentic RAG (Smart Contract Vulnerabilities)
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
       query:
         description: 'Query for the agent'
         required: false
-        default: 'Summarize the sample docs and propose next steps for building an MVP.'
+        default: 'Summarize the main smart contract vulnerabilities and suggest mitigation strategies.'
   push:
     branches:
       - main
@@ -32,7 +32,7 @@ jobs:
             QUERY="${{ secrets.USER_QUERY }}"
           fi
           if [ -z "$QUERY" ]; then
-            QUERY="Summarize the sample documents and propose next steps for building an MVP."
+            QUERY="Summarize the main smart contract vulnerabilities and suggest mitigation strategies."
           fi
           python app.py --query "$QUERY"
         env:
