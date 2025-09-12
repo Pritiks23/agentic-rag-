@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Main entrypoint for Agentic RAG using Hugging Face free LLM.
+Agentic RAG on smart contract vulnerabilities using Hugging Face free LLM.
 """
 
 import os
@@ -17,10 +17,16 @@ ARIZE_API_KEY = os.environ.get("ARIZE_API_KEY")
 ARIZE_SPACE_KEY = os.environ.get("ARIZE_SPACE_KEY")
 LASTMILE_API_TOKEN = os.environ.get("LASTMILE_API_TOKEN")
 
-# Example public text sources
+# Public smart contract vulnerability files
 SOURCES = [
-    {"id": "sample_blog_1", "url": "https://raw.githubusercontent.com/openai/openai-cookbook/main/examples/data-processing/introduction.txt"},
-    {"id": "sample_blog_2", "url": "https://raw.githubusercontent.com/github/choosealicense.com/main/_licenses/mit.txt"}
+    {
+        "id": "solidity_known_attacks",
+        "url": "https://raw.githubusercontent.com/ConsenSys/smart-contract-best-practices/master/docs/known_attacks.md"
+    },
+    {
+        "id": "solidity_security_considerations",
+        "url": "https://raw.githubusercontent.com/ConsenSys/smart-contract-best-practices/master/docs/solidity_security_considerations.md"
+    }
 ]
 
 def fetch_docs():
@@ -85,3 +91,4 @@ if __name__ == "__main__":
     parser.add_argument("--query", type=str, required=True)
     args = parser.parse_args()
     main(args.query)
+
