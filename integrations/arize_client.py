@@ -4,4 +4,4 @@ class ArizeClient:
         self.space_key = space_key
 
     def log_text(self, query, answer):
-        print(f"[Arize] Logging query and answer. Query length: {len(query)}, Answer length: {len(answer)}")
+        print(f"[Arize] Logging query length {len(query)} and answer length {len(answer)}")
