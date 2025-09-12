@@ -4,3 +4,4 @@ scikit-learn
 sentence-transformers
 arize
 python-dotenv
+beautifulsoup4
