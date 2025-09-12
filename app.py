@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Agentic RAG on smart contract vulnerabilities using Hugging Face free LLM.
-Updated to use tiiuae/falcon-7b model.
+Updated to use tiiuae/falcon-mamba-7b model.
 """
 
 import os
@@ -50,7 +50,7 @@ def query_hf_llm(prompt):
     if not HF_API_TOKEN:
         return "Error: HF_API_TOKEN not set."
     
-    url = "https://api-inference.huggingface.co/models/tiiuae/falcon-7b"
+    url = "https://api-inference.huggingface.co/models/tiiuae/falcon-mamba-7b"
     headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
     payload = {"inputs": prompt, "parameters": {"max_new_tokens": 300}}
     
@@ -96,5 +96,4 @@ if __name__ == "__main__":
     parser.add_argument("--query", type=str, required=True)
     args = parser.parse_args()
     main(args.query)
-
 
