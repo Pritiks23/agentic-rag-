@@ -6,6 +6,7 @@ Agentic RAG on smart contract vulnerabilities using Hugging Face free LLM.
 import os
 import requests
 import argparse
+from bs4 import BeautifulSoup
 from retriever import InMemoryRetriever
 from agent import Agent
 from integrations.arize_client import ArizeClient
@@ -17,15 +18,11 @@ ARIZE_API_KEY = os.environ.get("ARIZE_API_KEY")
 ARIZE_SPACE_KEY = os.environ.get("ARIZE_SPACE_KEY")
 LASTMILE_API_TOKEN = os.environ.get("LASTMILE_API_TOKEN")
 
-# Public smart contract vulnerability files
+# Easy-to-fetch article URL
 SOURCES = [
     {
-        "id": "solidity_known_attacks",
-        "url": "https://raw.githubusercontent.com/ConsenSys/smart-contract-best-practices/master/docs/known_attacks.md"
-    },
-    {
-        "id": "solidity_security_considerations",
-        "url": "https://raw.githubusercontent.com/ConsenSys/smart-contract-best-practices/master/docs/solidity_security_considerations.md"
+        "id": "frontiers_smart_contracts",
+        "url": "https://www.frontiersin.org/journals/blockchain/articles/10.3389/fbloc.2022.814977/full"
     }
 ]
 
@@ -33,9 +30,12 @@ def fetch_docs():
     docs = []
     for src in SOURCES:
         try:
-            r = requests.get(src["url"], timeout=10)
+            r = requests.get(src["url"], timeout=15)
             r.raise_for_status()
-            docs.append({"id": src["id"], "text": r.text})
+            soup = BeautifulSoup(r.text, "html.parser")
+            paragraphs = soup.find_all("p")
+            text = "\n".join([p.get_text() for p in paragraphs])
+            docs.append({"id": src["id"], "text": text})
         except Exception as e:
             print(f"Error fetching {src['url']}: {e}")
     return docs
@@ -80,6 +80,8 @@ def main(query):
     if ARIZE_API_KEY and ARIZE_SPACE_KEY:
         arize = ArizeClient(ARIZE_API_KEY, ARIZE_SPACE_KEY)
         arize.log_text(query, answer)
+    elif ARIZE_API_KEY:
+        print("[Arize] Warning: ARIZE_SPACE_KEY missing. Skipping logging.")
 
     # LastMile logging
     if LASTMILE_API_TOKEN:
@@ -91,4 +93,5 @@ if __name__ == "__main__":
     parser.add_argument("--query", type=str, required=True)
     args = parser.parse_args()
     main(args.query)
+
 
