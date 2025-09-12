@@ -8,7 +8,7 @@ class Agent:
 
     def run(self, query):
         query_emb = self.embed_model.encode([query])[0]
-        docs = self.retriever.retrieve(query_emb, top_k=2)
+        docs = self.retriever.retrieve(query_emb, top_k=1)
         context = "\n---\n".join([d["text"] for d in docs])
         prompt = f"Context:\n{context}\n\nQuery:\n{query}"
         return self.llm_call(prompt)
