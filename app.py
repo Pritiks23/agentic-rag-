@@ -1,4 +1,4 @@
-app.py
+
 #!/usr/bin/env python3
 """
 app.py - runs Agentic RAG with self-critiquing agent.
