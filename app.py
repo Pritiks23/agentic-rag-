@@ -1,122 +1,111 @@
-#!/usr/bin/env python3
-"""
-app.py - runs Agentic RAG with self-critiquing agent.
-Assumes local FLAN-T5 loaded (transformers + torch). No external HF inference API required.
-"""
-
 import os
-import argparse
 import requests
-from bs4 import BeautifulSoup
-import torch
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+import torch
 from retriever import InMemoryRetriever
 from agent import Agent
-from integrations.arize_client import ArizeClient
-from integrations.lastmile_client import LastmileClient
-from sentence_transformers import SentenceTransformer
 
-# Optional telemetry
-ARIZE_API_KEY = os.environ.get("ARIZE_API_KEY")
-ARIZE_SPACE_KEY = os.environ.get("ARIZE_SPACE_KEY")
-LASTMILE_API_TOKEN = os.environ.get("LASTMILE_API_TOKEN")
+HF_API_TOKEN = os.getenv("HF_API_TOKEN")
+ARIZE_API_KEY = os.getenv("ARIZE_API_KEY", "demo")
+ARIZE_SPACE_KEY = os.getenv("ARIZE_SPACE_KEY", "demo")
+LASTMILE_API_KEY = os.getenv("LASTMILE_API_KEY", "demo")
 
-# Document source
-SOURCES = [
-    {
-        "id": "frontiers_smart_contracts",
-        "url": "https://www.frontiersin.org/journals/blockchain/articles/10.3389/fbloc.2022.814977/full"
-    }
-]
-
-# Load FLAN-T5 locally once (be mindful of RAM)
+# === Load FLAN-T5 locally ===
 print("Loading FLAN-T5 model locally...")
-tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-large")
-model = AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-large")
-model.eval()
-if torch.cuda.is_available():
-    model.to("cuda")
+flan_model_name = "google/flan-t5-large"
+tokenizer = AutoTokenizer.from_pretrained(flan_model_name)
+model = AutoModelForSeq2SeqLM.from_pretrained(flan_model_name)
 
-# LLM wrapper that uses local model
-def query_hf_llm(prompt):
+def flan_generate(prompt, max_new_tokens=300):
+    inputs = tokenizer(prompt, return_tensors="pt", truncation=True)
+    with torch.no_grad():
+        outputs = model.generate(**inputs, max_new_tokens=max_new_tokens)
+    return tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+# === Call stronger HF instruct model for critique & revision ===
+def llama_generate(prompt, max_new_tokens=400):
+    if not HF_API_TOKEN:
+        return "Error: HF_API_TOKEN not set."
+    url = "https://api-inference.huggingface.co/models/meta-llama/Meta-Llama-3-8B-Instruct"
+    headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
+    payload = {"inputs": prompt, "parameters": {"max_new_tokens": max_new_tokens}}
     try:
-        inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
-        if torch.cuda.is_available():
-            inputs = {k: v.to("cuda") for k, v in inputs.items()}
-        # Note: we intentionally do NOT pass 'temperature' to avoid the generation flag warning.
-        with torch.no_grad():
-            outputs = model.generate(**inputs, max_new_tokens=300)
-        text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        return text
-    except Exception as e:
-        return f"Error running local model: {e}"
+        response = requests.post(url, headers=headers, json=payload, timeout=120)
+        response.raise_for_status()
+        result = response.json()
+        if isinstance(result, list) and "generated_text" in result[0]:
+            return result[0]["generated_text"]
+        else:
+            return str(result)
+    except requests.exceptions.RequestException as e:
+        return f"Error calling Llama-3: {e}"
 
-def fetch_docs():
-    docs = []
-    for src in SOURCES:
-        try:
-            r = requests.get(src["url"], timeout=15)
-            r.raise_for_status()
-            soup = BeautifulSoup(r.text, "html.parser")
-            paragraphs = soup.find_all("p")
-            text = "\n".join([p.get_text() for p in paragraphs])
-            docs.append({"id": src["id"], "text": text})
-        except Exception as e:
-            print(f"Error fetching {src['url']}: {e}")
-    return docs
+# === Agent with self-critique ===
+class AgenticRAGAgent(Agent):
+    def run(self, query: str):
+        docs = self.retriever.retrieve(query, top_k=3)
+        context = "\n".join([d['text'] for d in docs])
 
-def embed_docs(docs):
-    model_emb = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-    embeddings = model_emb.encode([d["text"] for d in docs])
-    return embeddings
+        # Step 1: Draft answer with FLAN
+        draft_prompt = f"Context:\n{context}\n\nQuestion: {query}\nAnswer:"
+        draft_answer = flan_generate(draft_prompt)
 
-def main(query):
-    print("Fetching docs...")
-    docs = fetch_docs()
-    if not docs:
-        print("No docs found, exiting.")
-        return
+        # Step 2: Critique with Llama-3
+        critique_prompt = f"""
+You are a critique agent. Analyze the following draft answer.
 
-    print("Embedding docs...")
-    embeddings = embed_docs(docs)
+DRAFT:
+{draft_answer}
 
-    retriever = InMemoryRetriever(docs, embeddings)
-    agent = Agent(retriever, query_hf_llm)
+QUESTION:
+{query}
 
-    print("Running agentic RAG loop (with self-critique)...")
-    results = agent.run(query, top_k=1)
+Return ONLY JSON with this schema:
+{{
+  "missing": ["list of important missing points"],
+  "unclear": ["list of unclear statements"],
+  "suggestions": ["concrete improvements"]
+}}
+"""
+        critique = llama_generate(critique_prompt)
 
-    # Pretty print results
-    print("\n=== INITIAL ANSWER ===\n")
-    print(results["initial"][:4000])  # truncate long outputs for logs
+        # Step 3: Revision with Llama-3
+        revision_prompt = f"""
+You are a revision agent. Improve the draft answer using the critique.
 
-    print("\n=== CRITIQUE (raw) ===\n")
-    print(results["critique"][:4000])
+DRAFT:
+{draft_answer}
 
-    print("\n=== PARSED CRITIQUE (best-effort) ===\n")
-    print(results["critique_parsed"])
+CRITIQUE:
+{critique}
 
-    print("\n=== FINAL ANSWER (revised) ===\n")
-    print(results["final"][:4000])
+Return ONLY JSON with this schema:
+{{
+  "final_answer": "Improved answer here",
+  "changelog": ["list of changes you made"]
+}}
+"""
+        revision = llama_generate(revision_prompt)
 
-    print("\n=== CHANGELOG ===\n")
-    for item in results.get("changelog", [])[:10]:
-        print("-", item)
+        return {
+            "draft": draft_answer,
+            "critique": critique,
+            "revision": revision
+        }
 
-    # Arize logging: send the final answer (if keys present)
-    if ARIZE_API_KEY and ARIZE_SPACE_KEY:
-        arize = ArizeClient(ARIZE_API_KEY, ARIZE_SPACE_KEY)
-        arize.log_text(query, results["final"])
-    elif ARIZE_API_KEY:
-        print("[Arize] Warning: ARIZE_SPACE_KEY missing. Skipping logging.")
-
-    # LastMile logging
-    if LASTMILE_API_TOKEN:
-        lm = LastmileClient(LASTMILE_API_TOKEN)
-        lm.log_evaluation(query, results["final"])
-
+# === Run ===
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--query", type=str, required=True)
-    args = parser.parse_args()
-    main(args.query)
+    query = os.getenv("QUERY", "Summarize the main smart contract vulnerabilities and suggest mitigation strategies.")
+    retriever = InMemoryRetriever("data/embeddings.json")
+    agent = AgenticRAGAgent(retriever)
+    result = agent.run(query)
+
+    print("\n=== INITIAL DRAFT ===\n", result["draft"])
+    print("\n=== CRITIQUE ===\n", result["critique"])
+    print("\n=== FINAL ANSWER (Revised) ===\n", result["revision"])
+
+    # Log to Arize + Lastmile (same as before)
+    from utils import log_to_arize, log_to_lastmile
+    log_to_arize(query, result["revision"])
+    log_to_lastmile(query, result["revision"])
+
