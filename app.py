@@ -1,31 +1,36 @@
 #!/usr/bin/env python3
 """
-Agentic RAG on smart contract vulnerabilities using Hugging Face free LLM.
-Updated to use facebook/bart-large-cnn model.
+Agentic RAG on smart contract vulnerabilities using Hugging Face transformers.
+Now running google/flan-t5-large locally instead of via API.
 """
 
 import os
-import requests
 import argparse
+import torch
 from bs4 import BeautifulSoup
+import requests
 from retriever import InMemoryRetriever
 from agent import Agent
 from integrations.arize_client import ArizeClient
 from integrations.lastmile_client import LastmileClient
 from sentence_transformers import SentenceTransformer
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
-HF_API_TOKEN = os.environ.get("HF_API_TOKEN")
 ARIZE_API_KEY = os.environ.get("ARIZE_API_KEY")
 ARIZE_SPACE_KEY = os.environ.get("ARIZE_SPACE_KEY")
 LASTMILE_API_TOKEN = os.environ.get("LASTMILE_API_TOKEN")
 
-# Easy-to-fetch article URL
 SOURCES = [
     {
         "id": "frontiers_smart_contracts",
         "url": "https://www.frontiersin.org/journals/blockchain/articles/10.3389/fbloc.2022.814977/full"
     }
 ]
+
+# Load model + tokenizer once at startup
+print("Loading FLAN-T5 model locally...")
+tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-large")
+model = AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-large")
 
 def fetch_docs():
     docs = []
@@ -42,33 +47,24 @@ def fetch_docs():
     return docs
 
 def embed_docs(docs):
-    model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-    embeddings = model.encode([d["text"] for d in docs])
+    model_emb = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+    embeddings = model_emb.encode([d["text"] for d in docs])
     return embeddings
 
 def query_hf_llm(prompt):
-    if not HF_API_TOKEN:
-        return "Error: HF_API_TOKEN not set."
-    
-    url = "https://api-inference.huggingface.co/models/google/flan-t5-large"
-    headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
-    payload = {"inputs": prompt, "parameters": {"max_new_tokens": 300}}
-    
+    """Run prompt through local FLAN-T5 model."""
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=60)
-        response.raise_for_status()
-        # flan-t5 returns 'generated_text' sometimes under 'summary_text'
-        result = response.json()
-        if isinstance(result, list) and "generated_text" in result[0]:
-            return result[0]["generated_text"]
-        elif isinstance(result, list) and "summary_text" in result[0]:
-            return result[0]["summary_text"]
-        else:
-            return str(result)
-    except requests.exceptions.RequestException as e:
-        return f"Error calling HF LLM: {e}"
-
-
+        inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
+        with torch.no_grad():
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=300,
+                temperature=0.7,
+                do_sample=False
+            )
+        return tokenizer.decode(outputs[0], skip_special_tokens=True)
+    except Exception as e:
+        return f"Error running local model: {e}"
 
 def main(query):
     print("Fetching docs...")
@@ -88,14 +84,12 @@ def main(query):
     print("\n=== Answer ===\n")
     print(answer)
 
-    # Arize logging
     if ARIZE_API_KEY and ARIZE_SPACE_KEY:
         arize = ArizeClient(ARIZE_API_KEY, ARIZE_SPACE_KEY)
         arize.log_text(query, answer)
     elif ARIZE_API_KEY:
         print("[Arize] Warning: ARIZE_SPACE_KEY missing. Skipping logging.")
 
-    # LastMile logging
     if LASTMILE_API_TOKEN:
         lm = LastmileClient(LASTMILE_API_TOKEN)
         lm.log_evaluation(query, answer)
@@ -105,4 +99,3 @@ if __name__ == "__main__":
     parser.add_argument("--query", type=str, required=True)
     args = parser.parse_args()
     main(args.query)
-
