@@ -1,8 +1,8 @@
 # Agentic RAG for Smart Contract Vulnerabilities
 
-<img width="1200" height="430" alt="image" src="https://github.com/user-attachments/assets/3c5933ab-fb0d-4d9f-8170-be715be55d74" />
+<img width="600" height="215" alt="image" src="https://github.com/user-attachments/assets/3c5933ab-fb0d-4d9f-8170-be715be55d74" />
 
-<img width="1024" height="569" alt="image" src="https://github.com/user-attachments/assets/8ccf885a-6e9e-45eb-aec1-e369a9d28f49" />
+<img width="512" height="285" alt="image" src="https://github.com/user-attachments/assets/8ccf885a-6e9e-45eb-aec1-e369a9d28f49" />
 
 This project implements an **Agentic Retrieval-Augmented Generation (RAG) system** designed to analyze, summarize, and suggest mitigation strategies for **smart contract vulnerabilities**. Unlike traditional RAG pipelines that only augment responses with retrieved context, **Agentic RAG introduces a reasoning loop** where the agent can iteratively refine its queries to the retriever, evaluate intermediate results, and self-correct before producing a final answer.
 
