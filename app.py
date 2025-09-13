@@ -50,16 +50,26 @@ def query_hf_llm(prompt):
     if not HF_API_TOKEN:
         return "Error: HF_API_TOKEN not set."
     
-    url = "https://api-inference.huggingface.co/models/facebook/bart-large-cnn"
+    # Switch to Microsoft BitNet model
+    url = "https://api-inference.huggingface.co/models/microsoft/bitnet-b1.58-2B-4T"
     headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
     payload = {"inputs": prompt, "parameters": {"max_new_tokens": 300}}
     
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=60)
         response.raise_for_status()
-        return response.json()[0]["generated_text"]
+        output = response.json()
+        
+        # Handle possible output formats
+        if isinstance(output, list) and "generated_text" in output[0]:
+            return output[0]["generated_text"]
+        elif isinstance(output, dict) and "generated_text" in output:
+            return output["generated_text"]
+        else:
+            return str(output)  # fallback: dump full response
     except requests.exceptions.RequestException as e:
         return f"Error calling HF LLM: {e}"
+
 
 def main(query):
     print("Fetching docs...")
